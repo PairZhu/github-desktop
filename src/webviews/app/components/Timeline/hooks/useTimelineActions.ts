@@ -18,6 +18,11 @@ interface UseTimelineActionsProps {
   setUncommittedChangesDialog: (open: boolean) => void;
   setIsLoadingMore: (loading: boolean) => void;
   setSelectedCommitHash: (hash: string | null) => void;
+  selectedFilePath: string | null;
+  selectedDiffLines: Set<string>;
+  fileDiffStaged: boolean;
+  setSelectedFilePath: (path: string | null) => void;
+  setSelectedDiffLines: (lines: Set<string>) => void;
 }
 
 export const useTimelineActions = ({
@@ -37,6 +42,11 @@ export const useTimelineActions = ({
   setUncommittedChangesDialog,
   setIsLoadingMore,
   setSelectedCommitHash,
+  selectedFilePath,
+  selectedDiffLines,
+  fileDiffStaged,
+  setSelectedFilePath,
+  setSelectedDiffLines,
 }: UseTimelineActionsProps) => {
   const handleFileToggle = (filePath: string) => {
     const newSelected = new Set(selectedFiles);
@@ -46,6 +56,55 @@ export const useTimelineActions = ({
       newSelected.add(filePath);
     }
     setSelectedFiles(newSelected);
+
+    const target = changes.find((change) => change.path === filePath);
+    setSelectedFilePath(filePath);
+    if (target) {
+      bridge.sendMessage("getWorkingFileDiff", {
+        filePath,
+        staged: target.staged,
+      });
+    }
+  };
+
+  const handleDiffLineToggle = (lineId: string) => {
+    const next = new Set(selectedDiffLines);
+    if (next.has(lineId)) {
+      next.delete(lineId);
+    } else {
+      next.add(lineId);
+    }
+    setSelectedDiffLines(next);
+  };
+
+  const handleStageSelectedLines = () => {
+    if (!selectedFilePath || selectedDiffLines.size === 0 || fileDiffStaged) {
+      return;
+    }
+    bridge.sendMessage("stageSelectedLines", {
+      filePath: selectedFilePath,
+      lineIds: Array.from(selectedDiffLines),
+    });
+    setSelectedDiffLines(new Set());
+  };
+
+  const handleDiscardFile = () => {
+    if (!selectedFilePath) return;
+    bridge.sendMessage("discardFileChanges", {
+      filePath: selectedFilePath,
+      staged: fileDiffStaged,
+    });
+  };
+
+  const handleDiscardSelectedLines = () => {
+    if (!selectedFilePath || selectedDiffLines.size === 0 || fileDiffStaged) {
+      return;
+    }
+    bridge.sendMessage("discardSelectedLines", {
+      filePath: selectedFilePath,
+      lineIds: Array.from(selectedDiffLines),
+    });
+    setSelectedDiffLines(new Set());
   };
 
   const handleStageFiles = () => {
@@ -196,5 +255,9 @@ export const useTimelineActions = ({
     handleCommitContextMenu,
     handleContextMenuClose,
     handleContextMenuAction,
+    handleDiffLineToggle,
+    handleStageSelectedLines,
+    handleDiscardFile,
+    handleDiscardSelectedLines,
   };
 };

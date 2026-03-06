@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, Typography, TextField, Button, Divider } from '@mui/material';
+import { Box, Typography, TextField, Button, Checkbox } from '@mui/material';
 import {
   Add as AddIcon,
   Remove as RemoveIcon,
@@ -9,6 +9,7 @@ import {
 } from '@mui/icons-material';
 import { GitChange } from '../../../bridge';
 import { FileChangesList } from './FileChangesList';
+import { DiffLine } from '../../../bridge';
 
 interface ChangesViewProps {
   changes: GitChange[];
@@ -22,6 +23,14 @@ interface ChangesViewProps {
   onCommit: () => void;
   onPush: () => void;
   onPull: () => void;
+  selectedFilePath: string | null;
+  diffLines: DiffLine[];
+  selectedDiffLines: Set<string>;
+  onDiffLineToggle: (lineId: string) => void;
+  onStageSelectedLines: () => void;
+  onDiscardFile: () => void;
+  onDiscardSelectedLines: () => void;
+  fileDiffStaged: boolean;
 }
 
 export const ChangesView: React.FC<ChangesViewProps> = ({
@@ -36,6 +45,14 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
   onCommit,
   onPush,
   onPull,
+  selectedFilePath,
+  diffLines,
+  selectedDiffLines,
+  onDiffLineToggle,
+  onStageSelectedLines,
+  onDiscardFile,
+  onDiscardSelectedLines,
+  fileDiffStaged,
 }) => {
   const stagedChanges = (changes || []).filter(c => c.staged);
   const unstagedChanges = (changes || []).filter(c => !c.staged);
@@ -139,8 +156,9 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
         </Box>
       </Box>
 
+      <Box sx={{ flex: 1, overflow: 'hidden', display: 'flex' }}>
       {/* Changes List */}
-      <Box sx={{ flex: 1, overflow: 'auto' }}>
+      <Box sx={{ flex: 1, overflow: 'auto', borderRight: '1px solid var(--vscode-sideBarSectionHeader-border)' }}>
         {stagedChanges.length > 0 && (
           <FileChangesList
             title="Staged Changes"
@@ -195,6 +213,31 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
             </Typography>
           </Box>
         )}
+      </Box>
+
+      <Box sx={{ flex: 1.2, overflow: 'auto', p: 1 }}>
+        <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
+          <Button size="small" variant="outlined" onClick={onStageSelectedLines} disabled={selectedDiffLines.size === 0 || fileDiffStaged}>暂存选中行</Button>
+          <Button size="small" variant="outlined" color="warning" onClick={onDiscardSelectedLines} disabled={selectedDiffLines.size === 0 || fileDiffStaged}>丢弃选中行</Button>
+          <Button size="small" variant="outlined" color="error" onClick={onDiscardFile} disabled={!selectedFilePath}>丢弃文件改动</Button>
+        </Box>
+        <Typography sx={{ fontSize: '12px', color: 'var(--vscode-descriptionForeground)', mb: 1 }}>
+          {selectedFilePath ? `${selectedFilePath}${fileDiffStaged ? '（已暂存）' : ''}` : '点击左侧文件查看并勾选具体变更行'}
+        </Typography>
+        {diffLines.map((line) => (
+          <Box key={line.id} sx={{ display: 'flex', alignItems: 'flex-start', bgcolor: line.type === 'add' ? 'rgba(46,160,67,0.12)' : 'rgba(248,81,73,0.12)' }}>
+            <Checkbox
+              size="small"
+              checked={selectedDiffLines.has(line.id)}
+              onChange={() => onDiffLineToggle(line.id)}
+              disabled={fileDiffStaged}
+            />
+            <Typography component="pre" sx={{ m: 0, fontSize: '12px', whiteSpace: 'pre-wrap', fontFamily: 'monospace', color: line.type === 'add' ? '#3fb950' : '#f85149' }}>
+              {line.type === 'add' ? '+' : '-'} {line.content}
+            </Typography>
+          </Box>
+        ))}
+      </Box>
       </Box>
     </Box>
   );

@@ -23,6 +23,20 @@ export interface GitChange {
   staged: boolean;
 }
 
+export interface DiffLine {
+  id: string;
+  type: "add" | "del";
+  content: string;
+  oldLine: number | null;
+  newLine: number | null;
+}
+
+export interface FileDiffPayload {
+  filePath: string;
+  staged: boolean;
+  lines: DiffLine[];
+}
+
 export interface GitCommit {
   hash: string;
   message: string;

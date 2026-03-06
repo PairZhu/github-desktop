@@ -8,6 +8,7 @@ import {
   ListItemText,
   ListItemIcon,
   Collapse,
+  Checkbox,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -162,6 +163,11 @@ export const FileChangesList: React.FC<FileChangesListProps> = ({
                 }}
                 onClick={() => onFileToggle(change.path)}
               >
+                <Checkbox
+                  size="small"
+                  checked={selectedFiles.has(change.path)}
+                  sx={{ p: 0.25, mr: 0.5 }}
+                />
                 <ListItemIcon sx={{ minWidth: 20, mr: 0.5 }}>
                   <FileIcon sx={{
                     fontSize: 16,

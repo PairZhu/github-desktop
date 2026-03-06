@@ -1,6 +1,7 @@
 import * as path from "path";
 import * as vscode from "vscode";
 import simpleGit from "simple-git";
+import { spawn } from "child_process";
 import { RepositoryManager } from "../../../core/repositories/repository-manager";
 import { AccountManager } from "../../../core/accounts/account-manager";
 import { getPrimaryRepository } from "../../../shared/utils/repo-selection";
@@ -137,9 +138,133 @@ export class MessageHandlerService {
           await this.handleSelectFile(message.hash, message.path);
         }
         break;
+      case "getWorkingFileDiff":
+        if (typeof message.filePath === "string") {
+          await this.handleGetWorkingFileDiff(
+            message.filePath,
+            Boolean(message.staged),
+          );
+        }
+        break;
+      case "stageSelectedLines":
+        if (typeof message.filePath === "string" && Array.isArray(message.lineIds)) {
+          await this.handleStageSelectedLines(message.filePath, message.lineIds);
+        }
+        break;
+      case "discardFileChanges":
+        if (typeof message.filePath === "string") {
+          await this.handleDiscardFileChanges(message.filePath, Boolean(message.staged));
+        }
+        break;
+      case "discardSelectedLines":
+        if (typeof message.filePath === "string" && Array.isArray(message.lineIds)) {
+          await this.handleDiscardSelectedLines(message.filePath, message.lineIds);
+        }
+        break;
       default:
         break;
     }
+  }
+
+  private parseUnifiedDiff(diff: string) {
+    const lines = diff.split("\n");
+    const parsed: Array<{ id: string; type: "add" | "del"; content: string; oldLine: number | null; newLine: number | null }> = [];
+    let oldCursor = 0;
+    let newCursor = 0;
+    let hunkIndex = -1;
+    let rowIndex = 0;
+
+    for (const line of lines) {
+      const headerMatch = line.match(/^@@\s+-(\d+)(?:,\d+)?\s+\+(\d+)(?:,\d+)?\s+@@/);
+      if (headerMatch) {
+        hunkIndex += 1;
+        rowIndex = 0;
+        oldCursor = Number.parseInt(headerMatch[1], 10);
+        newCursor = Number.parseInt(headerMatch[2], 10);
+        continue;
+      }
+
+      if (line.startsWith("+") && !line.startsWith("+++")) {
+        parsed.push({
+          id: `${hunkIndex}:${rowIndex}`,
+          type: "add",
+          content: line.slice(1),
+          oldLine: null,
+          newLine: newCursor,
+        });
+        newCursor += 1;
+        rowIndex += 1;
+      } else if (line.startsWith("-") && !line.startsWith("---")) {
+        parsed.push({
+          id: `${hunkIndex}:${rowIndex}`,
+          type: "del",
+          content: line.slice(1),
+          oldLine: oldCursor,
+          newLine: null,
+        });
+        oldCursor += 1;
+        rowIndex += 1;
+      } else if (line.startsWith(" ")) {
+        oldCursor += 1;
+        newCursor += 1;
+      }
+    }
+
+    return parsed;
+  }
+
+  private buildPatchFromSelection(
+    filePath: string,
+    parsed: Array<{ id: string; type: "add" | "del"; content: string; oldLine: number | null; newLine: number | null }>,
+    selected: Set<string>,
+  ): string {
+    const selectedLines = parsed.filter((line) => selected.has(line.id));
+    if (selectedLines.length === 0) return "";
+
+    const hunks = selectedLines
+      .map((line) => {
+        if (line.type === "add" && line.newLine !== null) {
+          const oldStart = Math.max(1, line.newLine - 1);
+          return `@@ -${oldStart},0 +${line.newLine},1 @@\n+${line.content}`;
+        }
+        if (line.type === "del" && line.oldLine !== null) {
+          return `@@ -${line.oldLine},1 +${line.oldLine},0 @@\n-${line.content}`;
+        }
+        return "";
+      })
+      .filter(Boolean)
+      .join("\n");
+
+    if (!hunks.trim()) return "";
+
+    return `diff --git a/${filePath} b/${filePath}\n--- a/${filePath}\n+++ b/${filePath}\n${hunks}\n`;
+  }
+
+  private async applyPatch(
+    repositoryPath: string,
+    patch: string,
+    args: string[],
+  ): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn("git", args, { cwd: repositoryPath });
+      let stderr = "";
+
+      child.stderr.on("data", (chunk) => {
+        stderr += String(chunk);
+      });
+
+      child.on("error", reject);
+      child.on("close", (code) => {
+        if (code === 0) {
+          resolve();
+          return;
+        }
+        reject(new Error(stderr || `git ${args.join(" ")} failed`));
+      });
+
+      child.stdin.write(patch);
+      child.stdin.end();
+    });
   }
 
   private async configureGitWithAuth(
@@ -504,6 +629,115 @@ export class MessageHandlerService {
         message:
           error instanceof Error ? error.message : "Failed to load file diff.",
       });
+    }
+  }
+
+  private async handleGetWorkingFileDiff(
+    filePath: string,
+    staged: boolean,
+  ): Promise<void> {
+    const repository = getPrimaryRepository(this.repositories);
+    if (!repository) return;
+
+    try {
+      const git = simpleGit(repository.localPath);
+      const args = staged
+        ? ["diff", "--cached", "--unified=0", "--", filePath]
+        : ["diff", "--unified=0", "--", filePath];
+      const diff = await git.raw(args);
+      const lines = this.parseUnifiedDiff(diff);
+      this.view.webview.postMessage({
+        command: "workingFileDiff",
+        filePath,
+        staged,
+        lines,
+      });
+    } catch (error) {
+      vscode.window.showErrorMessage(`Failed to load working diff: ${error}`);
+    }
+  }
+
+  private async handleStageSelectedLines(
+    filePath: string,
+    lineIds: string[],
+  ): Promise<void> {
+    const repository = getPrimaryRepository(this.repositories);
+    if (!repository || lineIds.length === 0) return;
+
+    try {
+      const git = simpleGit(repository.localPath);
+      const diff = await git.raw(["diff", "--unified=0", "--", filePath]);
+      const parsed = this.parseUnifiedDiff(diff);
+      const patch = this.buildPatchFromSelection(
+        filePath,
+        parsed,
+        new Set(lineIds),
+      );
+      if (!patch.trim()) return;
+
+      await this.applyPatch(repository.localPath, patch, ["apply", "--cached", "--unidiff-zero", "-"]);
+      await this.handleRefresh();
+      await this.handleGetWorkingFileDiff(filePath, false);
+    } catch (error) {
+      vscode.window.showErrorMessage(`Failed to stage selected lines: ${error}`);
+    }
+  }
+
+  private async handleDiscardFileChanges(
+    filePath: string,
+    staged: boolean,
+  ): Promise<void> {
+    const repository = getPrimaryRepository(this.repositories);
+    if (!repository) return;
+
+    const confirm = await vscode.window.showWarningMessage(
+      `Discard changes in ${path.basename(filePath)}?`,
+      { modal: true },
+      "Discard",
+      "Cancel",
+    );
+
+    if (confirm !== "Discard") return;
+
+    try {
+      const git = simpleGit(repository.localPath);
+      if (staged) {
+        await git.reset(["HEAD", "--", filePath]);
+      } else {
+        await git.checkout(["--", filePath]);
+      }
+      await this.handleRefresh();
+      await this.handleGetWorkingFileDiff(filePath, staged);
+    } catch (error) {
+      vscode.window.showErrorMessage(`Failed to discard file changes: ${error}`);
+    }
+  }
+
+  private async handleDiscardSelectedLines(
+    filePath: string,
+    lineIds: string[],
+  ): Promise<void> {
+    const repository = getPrimaryRepository(this.repositories);
+    if (!repository || lineIds.length === 0) return;
+
+    try {
+      const git = simpleGit(repository.localPath);
+      const diff = await git.raw(["diff", "--unified=0", "--", filePath]);
+      const parsed = this.parseUnifiedDiff(diff);
+      const patch = this.buildPatchFromSelection(
+        filePath,
+        parsed,
+        new Set(lineIds),
+      );
+      if (!patch.trim()) return;
+
+      await this.applyPatch(repository.localPath, patch, ["apply", "--reverse", "--unidiff-zero", "-"]);
+      await this.handleRefresh();
+      await this.handleGetWorkingFileDiff(filePath, false);
+    } catch (error) {
+      vscode.window.showErrorMessage(
+        `Failed to discard selected lines: ${error}`,
+      );
     }
   }
 

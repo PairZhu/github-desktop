@@ -4,6 +4,7 @@ import {
   GitCommit,
   Repository,
   RemoteStatus,
+  DiffLine,
 } from "../../../bridge";
 
 export interface TimelineProps {
@@ -38,4 +39,8 @@ export interface TimelineState {
   isLoadingMore: boolean;
   allCommits: GitCommit[];
   selectedCommitHash: string | null;
+  selectedFilePath: string | null;
+  selectedDiffLines: Set<string>;
+  fileDiffLines: DiffLine[];
+  fileDiffStaged: boolean;
 }

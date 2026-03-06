@@ -4,14 +4,14 @@ import {
   TabType,
   ContextMenuState,
 } from "../types/timeline.types";
-import { GitCommit, VSCodeBridge } from "../../../bridge";
+import { DiffLine, GitCommit, VSCodeBridge } from "../../../bridge";
 
 export const useTimelineState = (
   bridge: VSCodeBridge,
   history: GitCommit[],
   commitsOffset: number,
 ) => {
-  const [activeTab, setActiveTab] = useState<TabType>("history");
+  const [activeTab, setActiveTab] = useState<TabType>("changes");
   const [commitMessage, setCommitMessage] = useState("");
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
@@ -24,6 +24,12 @@ export const useTimelineState = (
   const [selectedCommitHash, setSelectedCommitHash] = useState<string | null>(
     null,
   );
+  const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
+  const [selectedDiffLines, setSelectedDiffLines] = useState<Set<string>>(
+    new Set(),
+  );
+  const [fileDiffLines, setFileDiffLines] = useState<DiffLine[]>([]);
+  const [fileDiffStaged, setFileDiffStaged] = useState(false);
 
   // Update allCommits when history changes
   useEffect(() => {
@@ -38,6 +44,10 @@ export const useTimelineState = (
       if (message.command === "loadMoreCommitsResponse") {
         setAllCommits((prev) => [...prev, ...message.history]);
         setIsLoadingMore(false);
+      } else if (message.command === "workingFileDiff") {
+        setFileDiffLines(message.lines || []);
+        setFileDiffStaged(Boolean(message.staged));
+        setSelectedDiffLines(new Set());
       }
     };
 
@@ -59,6 +69,10 @@ export const useTimelineState = (
       isLoadingMore,
       allCommits,
       selectedCommitHash,
+      selectedFilePath,
+      selectedDiffLines,
+      fileDiffLines,
+      fileDiffStaged,
     },
     actions: {
       setActiveTab,
@@ -71,6 +85,10 @@ export const useTimelineState = (
       setIsLoadingMore,
       setAllCommits,
       setSelectedCommitHash,
+      setSelectedFilePath,
+      setSelectedDiffLines,
+      setFileDiffLines,
+      setFileDiffStaged,
     },
   };
 };

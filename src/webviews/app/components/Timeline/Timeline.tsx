@@ -42,6 +42,11 @@ export const Timeline: React.FC<TimelineProps> = ({
     setUncommittedChangesDialog: actions.setUncommittedChangesDialog,
     setIsLoadingMore: actions.setIsLoadingMore,
     setSelectedCommitHash: actions.setSelectedCommitHash,
+    selectedFilePath: state.selectedFilePath,
+    selectedDiffLines: state.selectedDiffLines,
+    fileDiffStaged: state.fileDiffStaged,
+    setSelectedFilePath: actions.setSelectedFilePath,
+    setSelectedDiffLines: actions.setSelectedDiffLines,
   });
 
   return (
@@ -87,6 +92,14 @@ export const Timeline: React.FC<TimelineProps> = ({
             onCommit={timelineActions.handleCommit}
             onPush={timelineActions.handlePush}
             onPull={timelineActions.handlePull}
+            selectedFilePath={state.selectedFilePath}
+            diffLines={state.fileDiffLines}
+            selectedDiffLines={state.selectedDiffLines}
+            onDiffLineToggle={timelineActions.handleDiffLineToggle}
+            onStageSelectedLines={timelineActions.handleStageSelectedLines}
+            onDiscardFile={timelineActions.handleDiscardFile}
+            onDiscardSelectedLines={timelineActions.handleDiscardSelectedLines}
+            fileDiffStaged={state.fileDiffStaged}
           />
         ) : (
           <HistoryView
